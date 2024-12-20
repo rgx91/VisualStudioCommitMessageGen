@@ -161,7 +161,7 @@ namespace vs22gptcommitviaapi
                     model = "gpt-4o-mini",
                     messages = new[]
                     {
-                        new { role = "system", content = "You are a commit message generator. Provide only the commit message, do not add things like this to the message: ```" },
+                        new { role = "system", content = "You are a commit message generator. Provide only the detailed commit message, do not add things like this to the message: ```" },
                         new { role = "user", content = $"Here are the changes:\n\n{changes}" }
                     }
                 }),
