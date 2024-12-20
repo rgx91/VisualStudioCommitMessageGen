@@ -11,7 +11,7 @@ using Microsoft.VisualStudio.ProjectSystem.Query;
 
 namespace vs22gptcommitviaapi
 {
-    /// <summary>
+     /// <summary>
     /// Command handler for generating a commit message from the current Git changes.
     /// </summary>
     [VisualStudioContribution]
@@ -20,21 +20,25 @@ namespace vs22gptcommitviaapi
         private readonly TraceSource _logger;
         private static readonly string OpenAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
 
-
+        /// <summary>
+        /// Initializes a new instance of the <see cref="GenerateCommitCommand"/> class.
+        /// </summary>
+        /// <param name="traceSource">A trace source for logging.</param>
         public GenerateCommitCommand(TraceSource traceSource)
         {
             _logger = Requires.NotNull(traceSource, nameof(traceSource));
         }
 
+        /// <inheritdoc/>
         public override CommandConfiguration CommandConfiguration => new("Generate Commit Message")
         {
             Icon = new(ImageMoniker.KnownValues.Extension, IconSettings.IconAndText),
             Placements = [CommandPlacement.KnownPlacements.ExtensionsMenu]
         };
 
+        /// <inheritdoc/>
         public override async Task ExecuteCommandAsync(IClientContext context, CancellationToken cancellationToken)
         {
-            // Get solution directory path using extensibility APIs rather than legacy services.
             var solutionPath = await GetSolutionDirectoryAsync(cancellationToken);
             if (string.IsNullOrEmpty(solutionPath))
             {
@@ -42,9 +46,7 @@ namespace vs22gptcommitviaapi
                 return;
             }
 
-            // Retrieve Git changes
             var changes = await GetGitChanges(solutionPath);
-
             if (string.IsNullOrEmpty(changes))
             {
                 await Extensibility.Shell().ShowPromptAsync("No changes found in Git.", PromptOptions.OK, cancellationToken);
@@ -59,47 +61,52 @@ namespace vs22gptcommitviaapi
 
             try
             {
-                // Generate commit message from OpenAI API
                 var commitMessage = await GenerateCommitMessageAsync(changes, cancellationToken);
                 if (string.IsNullOrEmpty(commitMessage))
                 {
                     await Extensibility.Shell().ShowPromptAsync("No commit message created.", PromptOptions.OK, cancellationToken);
                 }
-                // Copy to clipboard on STA thread
+
                 RunOnSTAThread(() =>
                 {
                     Clipboard.Clear();
                     Clipboard.SetText(commitMessage);
                 });
 
-                // Notify user
                 await Extensibility.Shell().ShowPromptAsync("Commit message has been copied to the clipboard.", PromptOptions.OK, cancellationToken);
             }
             catch (Exception ex)
             {
-                // Log and show error
                 _logger.TraceEvent(TraceEventType.Error, 0, $"Error generating commit message: {ex}");
                 await Extensibility.Shell().ShowPromptAsync($"Error: {ex.Message}", PromptOptions.OK, cancellationToken);
             }
         }
 
         /// <summary>
-        /// Attempts to retrieve the solution directory using the extensibility APIs.
+        /// Retrieves the directory of the currently open solution.
         /// </summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The path to the solution directory, or an empty string if not found.</returns>
         private async Task<string> GetSolutionDirectoryAsync(CancellationToken cancellationToken)
         {
             var workspace = Extensibility.Workspaces();
             IQueryResults<ISolutionSnapshot> solutions = await workspace.QuerySolutionAsync(
                 solution => solution.With(s => new { s.Path, s.Guid, s.ActiveConfiguration, s.ActivePlatform }),
                 cancellationToken);
-            var result = solutions.FirstOrDefault()?.Path;
-            if (result != null)
+
+            var solutionPath = solutions.FirstOrDefault()?.Path;
+            if (solutionPath != null)
             {
-                return Path.GetDirectoryName(result) ?? string.Empty;
+                return Path.GetDirectoryName(solutionPath) ?? string.Empty;
             }
             return string.Empty;
         }
 
+        /// <summary>
+        /// Retrieves the current Git changes by running a 'git diff' command.
+        /// </summary>
+        /// <param name="workingDirectory">The working directory of the repository.</param>
+        /// <returns>A string containing the Git diff output, or an error message.</returns>
         private static async Task<string> GetGitChanges(string workingDirectory)
         {
             if (string.IsNullOrEmpty(workingDirectory))
@@ -118,16 +125,17 @@ namespace vs22gptcommitviaapi
                 WorkingDirectory = workingDirectory
             };
 
-            using var process = new Process();
-            process.StartInfo = processStartInfo;
+            using var process = new Process
+            {
+                StartInfo = processStartInfo
+            };
+
             process.Start();
 
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
 
-            // Wait for both tasks to complete
-           var results= await Task.WhenAll(outputTask, errorTask);
-
+            var results = await Task.WhenAll(outputTask, errorTask);
             await process.WaitForExitAsync();
 
             var output = results[0];
@@ -136,10 +144,12 @@ namespace vs22gptcommitviaapi
             return string.IsNullOrEmpty(error) ? output : $"Error running git diff: {error}";
         }
 
-
         /// <summary>
-        /// Calls the OpenAI API to generate a commit message from the given changes.
+        /// Calls the OpenAI API to generate a commit message from the given code changes.
         /// </summary>
+        /// <param name="changes">The Git changes as a string.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The generated commit message.</returns>
         private async Task<string> GenerateCommitMessageAsync(string changes, CancellationToken cancellationToken)
         {
             using var httpClient = new HttpClient();
@@ -155,7 +165,8 @@ namespace vs22gptcommitviaapi
                         new { role = "user", content = $"Here are the changes:\n\n{changes}" }
                     }
                 }),
-                Encoding.UTF8, "application/json");
+                Encoding.UTF8,
+                "application/json");
 
             var response = await httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -171,8 +182,9 @@ namespace vs22gptcommitviaapi
         }
 
         /// <summary>
-        /// Executes an action on a single-threaded apartment thread, required for clipboard access in some environments.
+        /// Executes an action on an STA thread, required for clipboard operations.
         /// </summary>
+        /// <param name="action">The action to run.</param>
         private void RunOnSTAThread(Action action)
         {
             var thread = new Thread(() =>
