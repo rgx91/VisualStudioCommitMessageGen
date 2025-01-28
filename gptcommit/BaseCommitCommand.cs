@@ -11,30 +11,17 @@ using Microsoft.VisualStudio.ProjectSystem.Query;
 
 namespace vs22gptcommitviaapi
 {
-     /// <summary>
-    /// Command handler for generating a commit message from the current Git changes.
-    /// </summary>
-    [VisualStudioContribution]
-    internal class GenerateCommitCommand : Command
+    internal abstract class BaseCommitCommand : Command
     {
-        private readonly TraceSource _logger;
-        private static readonly string OpenAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
+        protected readonly TraceSource _logger;
+        protected static readonly string OpenAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="GenerateCommitCommand"/> class.
-        /// </summary>
-        /// <param name="traceSource">A trace source for logging.</param>
-        public GenerateCommitCommand(TraceSource traceSource)
+        protected BaseCommitCommand(TraceSource traceSource)
         {
             _logger = Requires.NotNull(traceSource, nameof(traceSource));
         }
 
-        /// <inheritdoc/>
-        public override CommandConfiguration CommandConfiguration => new("Generate Commit Message")
-        {
-            Icon = new(ImageMoniker.KnownValues.Extension, IconSettings.IconAndText),
-            Placements = [CommandPlacement.KnownPlacements.ExtensionsMenu]
-        };
+        protected abstract string SystemMessage { get; }
 
         /// <inheritdoc/>
         public override async Task ExecuteCommandAsync(IClientContext context, CancellationToken cancellationToken)
@@ -161,7 +148,7 @@ namespace vs22gptcommitviaapi
                     model = "gpt-4o-mini",
                     messages = new[]
                     {
-                        new { role = "system", content = "You are a commit message generator. Provide only the detailed commit message, do not add things like this to the message: ```" },
+                        new { role = "system", content = SystemMessage },
                         new { role = "user", content = $"Here are the changes:\n\n{changes}" }
                     }
                 }),
@@ -199,4 +186,5 @@ namespace vs22gptcommitviaapi
             thread.Join();
         }
     }
+    
 }
